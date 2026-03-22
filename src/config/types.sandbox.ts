@@ -121,3 +121,18 @@ export type SandboxSshSettings = {
   /** Inline or SecretRef-backed known_hosts contents. */
   knownHostsData?: SecretInput;
 };
+
+export type SandboxCheckpointSettings = {
+  /** Enable checkpoint/restore for sandboxed tool calls. Default: false. */
+  enabled?: boolean;
+  /** Checkpoint strategy. Default: "docker-commit". */
+  strategy?: "criu" | "docker-commit" | "overlay" | "auto";
+  /** Only checkpoint after mutating tools. Default: true. */
+  onlyMutating?: boolean;
+  /** Maximum number of checkpoints to retain per container. Default: 10. */
+  maxSnapshots?: number;
+  /** TTL in milliseconds — checkpoints older than this are pruned. Default: 3600000. */
+  ttlMs?: number;
+  /** Tool names to skip checkpointing for. */
+  skipTools?: string[];
+};

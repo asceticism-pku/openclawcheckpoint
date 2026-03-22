@@ -4,6 +4,7 @@ export {
   resolveSandboxDockerConfig,
   resolveSandboxPruneConfig,
   resolveSandboxScope,
+  resolveCheckpointConfig,
 } from "./sandbox/config.js";
 export {
   DEFAULT_SANDBOX_BROWSER_IMAGE,
@@ -47,6 +48,13 @@ export {
 } from "./sandbox/ssh.js";
 export { createRemoteShellSandboxFsBridge } from "./sandbox/remote-fs-bridge.js";
 
+export {
+  createCheckpoint,
+  findLastSuccessfulCheckpoint,
+  isMutatingTool,
+  restoreCheckpoint,
+} from "./sandbox/checkpoint.js";
+
 export type {
   CreateSandboxBackendParams,
   SandboxBackendCommandParams,
@@ -81,3 +89,9 @@ export type {
   SandboxWorkspaceAccess,
   SandboxWorkspaceInfo,
 } from "./sandbox/types.js";
+
+export type {
+  CheckpointConfig,
+  CheckpointEntry,
+  CheckpointStrategy,
+} from "./sandbox/checkpoint-types.js";

@@ -9,7 +9,7 @@ import { syncSkillsToWorkspace } from "../skills.js";
 import { DEFAULT_AGENT_WORKSPACE_DIR } from "../workspace.js";
 import { requireSandboxBackendFactory } from "./backend.js";
 import { ensureSandboxBrowser } from "./browser.js";
-import { resolveSandboxConfigForAgent } from "./config.js";
+import { resolveCheckpointConfig, resolveSandboxConfigForAgent } from "./config.js";
 import { createSandboxFsBridge } from "./fs-bridge.js";
 import { maybePruneSandboxes } from "./prune.js";
 import { updateRegistry } from "./registry.js";
@@ -208,6 +208,13 @@ export async function resolveSandboxContext(params: {
   sandboxContext.fsBridge =
     backend.createFsBridge?.({ sandbox: sandboxContext }) ??
     createSandboxFsBridge({ sandbox: sandboxContext });
+
+  if (backend.capabilities?.checkpoint) {
+    const checkpointConfig = resolveCheckpointConfig(params.config, resolved.runtime.agentId);
+    if (checkpointConfig.enabled) {
+      sandboxContext.checkpoint = { config: checkpointConfig };
+    }
+  }
 
   return sandboxContext;
 }

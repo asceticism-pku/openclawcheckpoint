@@ -242,6 +242,25 @@ export const SandboxPruneSchema = z
   .strict()
   .optional();
 
+export const SandboxCheckpointSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    strategy: z
+      .union([
+        z.literal("criu"),
+        z.literal("docker-commit"),
+        z.literal("overlay"),
+        z.literal("auto"),
+      ])
+      .optional(),
+    onlyMutating: z.boolean().optional(),
+    maxSnapshots: z.number().int().positive().optional(),
+    ttlMs: z.number().int().positive().optional(),
+    skipTools: z.array(z.string()).optional(),
+  })
+  .strict()
+  .optional();
+
 const ToolPolicyBaseSchema = z
   .object({
     allow: z.array(z.string()).optional(),
@@ -526,6 +545,7 @@ export const AgentSandboxSchema = z
     ssh: SandboxSshSchema,
     browser: SandboxBrowserSchema,
     prune: SandboxPruneSchema,
+    checkpoint: SandboxCheckpointSchema,
   })
   .strict()
   .superRefine((data, ctx) => {

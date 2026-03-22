@@ -1,4 +1,5 @@
 import type { SandboxBackendHandle, SandboxBackendId } from "./backend.js";
+import type { CheckpointConfig } from "./checkpoint-types.js";
 import type { SandboxFsBridge } from "./fs-bridge.js";
 import type { SandboxDockerConfig } from "./types.docker.js";
 
@@ -103,6 +104,9 @@ export type SandboxContext = {
   browser?: SandboxBrowserContext;
   fsBridge?: SandboxFsBridge;
   backend?: SandboxBackendHandle;
+  checkpoint?: {
+    config: CheckpointConfig;
+  };
 };
 
 export type SandboxWorkspaceInfo = {

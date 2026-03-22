@@ -36,6 +36,7 @@ export type SandboxBackendHandle = {
   configLabelKind?: string;
   capabilities?: {
     browser?: boolean;
+    checkpoint?: boolean;
   };
   buildExecSpec(params: {
     command: string;

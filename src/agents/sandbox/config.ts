@@ -17,6 +17,7 @@ import {
   DEFAULT_SANDBOX_WORKDIR,
   DEFAULT_SANDBOX_WORKSPACE_ROOT,
 } from "./constants.js";
+import { resolveCheckpointConfig as resolveCheckpointConfigBase } from "./checkpoint.js";
 import { resolveSandboxToolPolicyForAgent } from "./tool-policy.js";
 import type {
   SandboxBrowserConfig,
@@ -26,6 +27,29 @@ import type {
   SandboxScope,
   SandboxSshConfig,
 } from "./types.js";
+
+/**
+ * Resolves checkpoint configuration for the given agent, applying defaults.
+ * Reads from the agent-specific or global sandbox checkpoint config in OpenClawConfig.
+ */
+export function resolveCheckpointConfig(cfg?: OpenClawConfig, agentId?: string): CheckpointConfig {
+  const globalCheckpoint = cfg?.agents?.defaults?.sandbox?.checkpoint;
+  const agentConfig = cfg && agentId ? resolveAgentConfig(cfg, agentId) : undefined;
+  const agentCheckpoint = agentConfig?.sandbox?.checkpoint;
+  const merged = agentCheckpoint ?? globalCheckpoint;
+  return resolveCheckpointConfigBase(
+    merged
+      ? {
+          enabled: merged.enabled,
+          strategy: merged.strategy,
+          onlyMutating: merged.onlyMutating,
+          maxSnapshots: merged.maxSnapshots,
+          ttlMs: merged.ttlMs,
+          skipTools: merged.skipTools,
+        }
+      : undefined,
+  );
+}
 
 export const DANGEROUS_SANDBOX_DOCKER_BOOLEAN_KEYS = [
   "dangerouslyAllowReservedContainerTargets",
