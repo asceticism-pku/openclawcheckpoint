@@ -2549,6 +2549,7 @@ export async function runEmbeddedAttempt(
         sessionKey: sandboxSessionKey,
         sessionId: params.sessionId,
         agentId: sessionAgentId,
+        sandbox: sandbox ?? undefined,
       });
 
       const {

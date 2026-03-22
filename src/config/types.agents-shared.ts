@@ -1,5 +1,6 @@
 import type {
   SandboxBrowserSettings,
+  SandboxCheckpointSettings,
   SandboxDockerSettings,
   SandboxPruneSettings,
   SandboxSshSettings,
@@ -39,4 +40,6 @@ export type AgentSandboxConfig = {
   browser?: SandboxBrowserSettings;
   /** Auto-prune sandbox settings. */
   prune?: SandboxPruneSettings;
+  /** Checkpoint/restore settings. */
+  checkpoint?: SandboxCheckpointSettings;
 };

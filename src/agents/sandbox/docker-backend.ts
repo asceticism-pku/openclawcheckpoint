@@ -46,6 +46,7 @@ export function createDockerSandboxBackendHandle(params: {
     configLabelKind: "Image",
     capabilities: {
       browser: true,
+      checkpoint: true,
     },
     async buildExecSpec({ command, workdir, env, usePty }) {
       return {
