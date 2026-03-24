@@ -55,6 +55,12 @@ export {
   restoreCheckpoint,
 } from "./sandbox/checkpoint.js";
 
+export {
+  getStrideCount,
+  resetStrideCounter,
+  shouldCheckpointAtStride,
+} from "./sandbox/checkpoint-stride.js";
+
 export type {
   CreateSandboxBackendParams,
   SandboxBackendCommandParams,
