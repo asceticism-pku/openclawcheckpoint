@@ -11,6 +11,12 @@ export type CheckpointConfig = {
   ttlMs: number;
   /** Tools to skip checkpointing for. */
   skipTools: string[];
+  /**
+   * Checkpoint stride: only create a checkpoint every Nth mutating tool call per session.
+   * Defaults to 1 (checkpoint on every mutating tool call). Set to e.g. 3 to checkpoint
+   * only every 3rd mutating tool call.
+   */
+  checkpointStride?: number;
 };
 
 export type CheckpointEntry = {

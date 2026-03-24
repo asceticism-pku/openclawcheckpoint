@@ -50,6 +50,7 @@ export function resolveCheckpointConfig(cfg?: Partial<CheckpointConfig>): Checkp
     maxSnapshots: cfg.maxSnapshots ?? DEFAULT_CHECKPOINT_CONFIG.maxSnapshots,
     ttlMs: cfg.ttlMs ?? DEFAULT_CHECKPOINT_CONFIG.ttlMs,
     skipTools: cfg.skipTools ?? DEFAULT_CHECKPOINT_CONFIG.skipTools,
+    checkpointStride: cfg.checkpointStride ?? 1,
   };
 }
 
