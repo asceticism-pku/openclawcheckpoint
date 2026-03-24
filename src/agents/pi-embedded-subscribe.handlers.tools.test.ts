@@ -1,6 +1,15 @@
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MessagingToolSend } from "./pi-embedded-messaging.js";
+
+// --- Mock maybeCreateCheckpointAfterToolCall before imports ---
+const maybeCreateCheckpointAfterToolCallMock = vi.fn();
+
+vi.mock("./pi-tools.after-tool-call-checkpoint.js", () => ({
+  maybeCreateCheckpointAfterToolCall: (...args: unknown[]) =>
+    maybeCreateCheckpointAfterToolCallMock(...args),
+}));
+
 import {
   handleToolExecutionEnd,
   handleToolExecutionStart,
@@ -59,6 +68,10 @@ function createTestContext(): {
   return { ctx, warn, onBlockReplyFlush };
 }
 
+beforeEach(() => {
+  vi.clearAllMocks();
+  maybeCreateCheckpointAfterToolCallMock.mockResolvedValue(null);
+});
 describe("handleToolExecutionStart read path checks", () => {
   it("does not warn when read tool uses file_path alias", async () => {
     const { ctx, warn, onBlockReplyFlush } = createTestContext();
@@ -488,5 +501,182 @@ describe("messaging tool media URL tracking", () => {
 
     expect(ctx.state.messagingToolSentMediaUrls).toHaveLength(0);
     expect(ctx.state.pendingMessagingMediaUrls.has("tool-m3")).toBe(false);
+  });
+});
+
+describe("handleToolExecutionEnd checkpoint integration", () => {
+  function createCtxWithSandbox(checkpointConfig: {
+    enabled: boolean;
+    checkpointStride?: number;
+    onlyMutating?: boolean;
+    skipTools?: string[];
+  }): ToolHandlerContext {
+    const { ctx } = createTestContext();
+    // Attach a minimal sandbox with checkpoint config
+    (ctx.params as Record<string, unknown>).sandbox = {
+      containerName: "test-container",
+      checkpoint: {
+        config: {
+          enabled: checkpointConfig.enabled,
+          strategy: "docker-commit",
+          onlyMutating: checkpointConfig.onlyMutating ?? true,
+          maxSnapshots: 10,
+          ttlMs: 3_600_000,
+          skipTools: checkpointConfig.skipTools ?? [],
+          checkpointStride: checkpointConfig.checkpointStride ?? 1,
+        },
+      },
+    };
+    (ctx.params as Record<string, unknown>).sessionKey = "session-abc";
+    return ctx;
+  }
+
+  it("calls maybeCreateCheckpointAfterToolCall when checkpoint is enabled and tool succeeds", async () => {
+    const ctx = createCtxWithSandbox({ enabled: true });
+
+    await handleToolExecutionEnd(
+      ctx as never,
+      {
+        type: "tool_execution_end",
+        toolName: "exec",
+        toolCallId: "tc-1",
+        isError: false,
+        result: { ok: true },
+      } as never,
+    );
+
+    expect(maybeCreateCheckpointAfterToolCallMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: "exec",
+        toolCallId: "tc-1",
+        sessionKey: "session-abc",
+        containerName: "test-container",
+      }),
+    );
+  });
+
+  it("does not call maybeCreateCheckpointAfterToolCall when the tool call is an error", async () => {
+    const ctx = createCtxWithSandbox({ enabled: true });
+
+    await handleToolExecutionEnd(
+      ctx as never,
+      {
+        type: "tool_execution_end",
+        toolName: "exec",
+        toolCallId: "tc-err",
+        isError: true,
+        result: "Error: something went wrong",
+      } as never,
+    );
+
+    expect(maybeCreateCheckpointAfterToolCallMock).not.toHaveBeenCalled();
+  });
+
+  it("does not call maybeCreateCheckpointAfterToolCall when checkpoint is disabled", async () => {
+    const ctx = createCtxWithSandbox({ enabled: false });
+
+    await handleToolExecutionEnd(
+      ctx as never,
+      {
+        type: "tool_execution_end",
+        toolName: "exec",
+        toolCallId: "tc-disabled",
+        isError: false,
+        result: { ok: true },
+      } as never,
+    );
+
+    expect(maybeCreateCheckpointAfterToolCallMock).not.toHaveBeenCalled();
+  });
+
+  it("does not call maybeCreateCheckpointAfterToolCall when sandbox is absent", async () => {
+    const { ctx } = createTestContext();
+
+    await handleToolExecutionEnd(
+      ctx as never,
+      {
+        type: "tool_execution_end",
+        toolName: "exec",
+        toolCallId: "tc-no-sandbox",
+        isError: false,
+        result: { ok: true },
+      } as never,
+    );
+
+    expect(maybeCreateCheckpointAfterToolCallMock).not.toHaveBeenCalled();
+  });
+
+  it("passes checkpointConfig to maybeCreateCheckpointAfterToolCall so stride throttling is applied", async () => {
+    const ctx = createCtxWithSandbox({ enabled: true, checkpointStride: 3 });
+
+    await handleToolExecutionEnd(
+      ctx as never,
+      {
+        type: "tool_execution_end",
+        toolName: "exec",
+        toolCallId: "tc-stride",
+        isError: false,
+        result: { ok: true },
+      } as never,
+    );
+
+    expect(maybeCreateCheckpointAfterToolCallMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checkpointConfig: expect.objectContaining({ checkpointStride: 3 }),
+      }),
+    );
+  });
+
+  it("passes checkpointConfig with onlyMutating and skipTools to maybeCreateCheckpointAfterToolCall", async () => {
+    const ctx = createCtxWithSandbox({
+      enabled: true,
+      onlyMutating: true,
+      skipTools: ["read", "ls"],
+    });
+
+    await handleToolExecutionEnd(
+      ctx as never,
+      {
+        type: "tool_execution_end",
+        toolName: "exec",
+        toolCallId: "tc-filters",
+        isError: false,
+        result: { ok: true },
+      } as never,
+    );
+
+    expect(maybeCreateCheckpointAfterToolCallMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checkpointConfig: expect.objectContaining({
+          onlyMutating: true,
+          skipTools: ["read", "ls"],
+        }),
+      }),
+    );
+  });
+
+  it("logs a warning when maybeCreateCheckpointAfterToolCall rejects", async () => {
+    const ctx = createCtxWithSandbox({ enabled: true });
+    maybeCreateCheckpointAfterToolCallMock.mockRejectedValueOnce(new Error("docker error"));
+
+    await handleToolExecutionEnd(
+      ctx as never,
+      {
+        type: "tool_execution_end",
+        toolName: "exec",
+        toolCallId: "tc-reject",
+        isError: false,
+        result: { ok: true },
+      } as never,
+    );
+
+    // Drain microtasks so the fire-and-forget .catch() handler has run.
+    await Promise.resolve();
+
+    expect(
+      (ctx.log.warn as ReturnType<typeof vi.fn>).mock.calls.some((args) =>
+        String(args[0]).includes("Checkpoint creation failed after tool=exec"),
+      ),
+    ).toBe(true);
   });
 });

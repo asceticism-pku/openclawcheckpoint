@@ -22,8 +22,8 @@ import {
   sanitizeToolResult,
 } from "./pi-embedded-subscribe.tools.js";
 import { inferToolMetaFromArgs } from "./pi-embedded-utils.js";
+import { maybeCreateCheckpointAfterToolCall } from "./pi-tools.after-tool-call-checkpoint.js";
 import { consumeAdjustedParamsForToolCall } from "./pi-tools.before-tool-call.js";
-import { createCheckpoint } from "./sandbox/checkpoint.js";
 import { buildToolMutationState, isSameToolMutationAction } from "./tool-mutation.js";
 import { normalizeToolName } from "./tool-policy.js";
 
@@ -609,13 +609,12 @@ export async function handleToolExecutionEnd(
   // --- Checkpoint: snapshot after mutating tool (fire-and-forget) ---
   const sandboxCtx = ctx.params.sandbox;
   if (sandboxCtx?.checkpoint?.config?.enabled && !isToolError) {
-    void createCheckpoint({
-      containerName: sandboxCtx.containerName,
-      sessionKey: ctx.params.sessionKey ?? "",
-      toolCallId,
+    void maybeCreateCheckpointAfterToolCall({
       toolName,
-      phase: "after",
-      config: sandboxCtx.checkpoint.config,
+      toolCallId,
+      sessionKey: ctx.params.sessionKey ?? "",
+      containerName: sandboxCtx.containerName,
+      checkpointConfig: sandboxCtx.checkpoint.config,
     }).catch((err) => {
       ctx.log.warn(`Checkpoint creation failed after tool=${toolName}: ${String(err)}`);
     });
