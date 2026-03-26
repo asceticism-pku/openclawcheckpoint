@@ -19,6 +19,12 @@ vi.mock("./sandbox/checkpoint-stride.js", () => ({
   resetStrideCounter: resetStrideCounterMock,
 }));
 
+const updateCheckpointEntryMock = vi.hoisted(() => vi.fn());
+
+vi.mock("./sandbox/checkpoint-registry.js", () => ({
+  updateCheckpointEntry: updateCheckpointEntryMock,
+}));
+
 import { maybeRestoreCheckpointOnLoop } from "./checkpoint-restore-on-loop.js";
 import type { LoopDetectionResult } from "./tool-loop-detection.js";
 
@@ -70,6 +76,8 @@ beforeEach(() => {
   findLastSuccessfulCheckpointMock.mockResolvedValue(makeEntry());
   restoreCheckpointMock.mockResolvedValue(true);
   resetStrideCounterMock.mockReset();
+  updateCheckpointEntryMock.mockReset();
+  updateCheckpointEntryMock.mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -184,5 +192,57 @@ describe("maybeRestoreCheckpointOnLoop", () => {
     expect(restoreCheckpointMock).toHaveBeenCalledWith(
       expect.objectContaining({ dockerRunArgs: args }),
     );
+  });
+
+  it("records the loop reason in the checkpoint exploration log before restoring", async () => {
+    const entry = makeEntry({ id: "ckpt-42", explorationLog: [] });
+    findLastSuccessfulCheckpointMock.mockResolvedValue(entry);
+
+    await maybeRestoreCheckpointOnLoop({
+      loopResult: criticalLoop,
+      sessionKey: "s1",
+      containerName: "c1",
+    });
+
+    expect(updateCheckpointEntryMock).toHaveBeenCalledWith(
+      "ckpt-42",
+      expect.objectContaining({
+        explorationLog: expect.arrayContaining([expect.stringContaining("global_circuit_breaker")]),
+      }),
+    );
+  });
+
+  it("includes exploration log in the returned message on successful restore", async () => {
+    const entry = makeEntry({
+      id: "ckpt-42",
+      explorationLog: ["[FAILED] earlier approach"],
+    });
+    findLastSuccessfulCheckpointMock.mockResolvedValue(entry);
+
+    const result = await maybeRestoreCheckpointOnLoop({
+      loopResult: criticalLoop,
+      sessionKey: "s1",
+      containerName: "c1",
+    });
+
+    expect(result.restored).toBe(true);
+    if (result.restored) {
+      expect(result.message).toContain("earlier approach");
+      expect(result.message).toContain("Previous exploration attempts");
+    }
+  });
+
+  it("still restores even if updateCheckpointEntry fails", async () => {
+    updateCheckpointEntryMock.mockRejectedValue(new Error("registry error"));
+
+    const result = await maybeRestoreCheckpointOnLoop({
+      loopResult: criticalLoop,
+      sessionKey: "s1",
+      containerName: "c1",
+    });
+
+    // Should still restore despite the exploration log update failing
+    expect(result.restored).toBe(true);
+    expect(restoreCheckpointMock).toHaveBeenCalled();
   });
 });

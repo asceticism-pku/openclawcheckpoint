@@ -57,6 +57,7 @@ import {
   mergeAlsoAllowPolicy,
   resolveToolProfilePolicy,
 } from "./tool-policy.js";
+import { createCheckpointTools } from "./tools/checkpoint-tools.js";
 import { resolveWorkspaceRoot } from "./workspace-dir.js";
 
 function isOpenAIProvider(provider?: string) {
@@ -495,6 +496,15 @@ export function createOpenClawCodingTools(options?: {
     processTool as unknown as AnyAgentTool,
     // Channel docking: include channel-defined agent tools (login, etc.).
     ...listChannelAgentTools({ cfg: options?.config }),
+    // Checkpoint agent tools: allow the agent to explicitly save/restore/list/diff checkpoints.
+    ...(sandbox?.checkpoint?.config.enabled && sandbox.containerName
+      ? createCheckpointTools({
+          sessionKey: sandbox.sessionKey,
+          containerName: sandbox.containerName,
+          dockerRunArgs: undefined,
+          checkpointConfig: sandbox.checkpoint.config,
+        })
+      : []),
     ...createOpenClawTools({
       sandboxBrowserBridgeUrl: sandbox?.browser?.bridgeUrl,
       allowHostBrowserControl: sandbox ? sandbox.browserAllowHostControl : true,

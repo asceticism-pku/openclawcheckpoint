@@ -30,6 +30,14 @@ export type CheckpointEntry = {
   snapshotRef: string;
   strategy: CheckpointStrategy;
   restorable: boolean;
+  /** Human/agent-readable label for this checkpoint (e.g., "before-firefox-config"). */
+  label?: string;
+  /** Why this checkpoint was created. Defaults to "auto" for backward compatibility. */
+  source?: "auto" | "agent" | "user";
+  /** Agent's description of the state at this checkpoint. */
+  description?: string;
+  /** What was tried after this checkpoint (populated on restore). */
+  explorationLog?: string[];
 };
 
 export type CheckpointRegistry = {

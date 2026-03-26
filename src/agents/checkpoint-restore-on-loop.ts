@@ -1,5 +1,6 @@
 import { formatRelativeTimestamp } from "../infra/format-time/format-relative.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { updateCheckpointEntry } from "./sandbox/checkpoint-registry.js";
 import { resetStrideCounter } from "./sandbox/checkpoint-stride.js";
 import type { CheckpointConfig } from "./sandbox/checkpoint-types.js";
 import {
@@ -66,6 +67,15 @@ export async function maybeRestoreCheckpointOnLoop(
     `Restoring checkpoint on critical loop: id=${entry.id} container=${containerName} session=${sessionKey} detector=${loopResult.detector}`,
   );
 
+  // Record the loop reason in the exploration log before restoring.
+  const loopLogEntry = `[AUTO-RESTORE] Detected stuck loop (${loopResult.detector}): ${loopResult.message}`;
+  const existingLog = entry.explorationLog ?? [];
+  await updateCheckpointEntry(entry.id, {
+    explorationLog: [...existingLog, loopLogEntry],
+  }).catch((err) => {
+    log.warn(`Failed to update exploration log for checkpoint ${entry.id}: ${String(err)}`);
+  });
+
   const ok = await restoreCheckpoint({ id: entry.id, containerName, dockerRunArgs });
   if (!ok) {
     log.warn(
@@ -78,7 +88,13 @@ export async function maybeRestoreCheckpointOnLoop(
   resetStrideCounter(sessionKey);
 
   const relativeTime = formatRelativeTimestamp(entry.createdAtMs);
-  const message = `⚠️ Detected stuck loop (${loopResult.detector}). Sandbox has been restored to checkpoint from ${relativeTime} (tool: ${entry.toolName}). Please try a different approach.`;
+  // Include exploration log so the agent knows what has already been tried.
+  const updatedLog = [...existingLog, loopLogEntry];
+  let message = `⚠️ Detected stuck loop (${loopResult.detector}). Sandbox has been restored to checkpoint from ${relativeTime} (tool: ${entry.toolName}). Please try a different approach.`;
+  if (updatedLog.length > 0) {
+    message += `\n\nPrevious exploration attempts from this checkpoint:\n`;
+    message += updatedLog.map((logItem, i) => `${i + 1}. ${logItem}`).join("\n");
+  }
   log.info(
     `Checkpoint restore succeeded: id=${entry.id} container=${containerName} session=${sessionKey}`,
   );
