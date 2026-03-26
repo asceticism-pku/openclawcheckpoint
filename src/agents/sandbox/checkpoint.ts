@@ -61,6 +61,12 @@ type CreateCheckpointParams = {
   toolName: string;
   phase: "before" | "after";
   config: CheckpointConfig;
+  /** Human/agent-readable label for this checkpoint. */
+  label?: string;
+  /** Source of this checkpoint creation. */
+  source?: "auto" | "agent" | "user";
+  /** Agent's description of the state at this checkpoint. */
+  description?: string;
 };
 
 /**
@@ -114,6 +120,9 @@ export async function createCheckpoint(
     snapshotRef,
     strategy: "docker-commit",
     restorable: true,
+    ...(params.label !== undefined ? { label: params.label } : {}),
+    ...(params.description !== undefined ? { description: params.description } : {}),
+    source: params.source ?? "auto",
   };
 
   try {

@@ -103,6 +103,50 @@ export async function pruneCheckpointsAfter(
   return pruned;
 }
 
+export async function findCheckpointByLabel(
+  containerName: string,
+  label: string,
+): Promise<CheckpointEntry | null> {
+  const registry = await readRegistryFile();
+  const matches = registry.entries.filter(
+    (e) => e.containerName === containerName && e.label === label,
+  );
+  if (matches.length === 0) {
+    return null;
+  }
+  // Return the most recently created match.
+  matches.sort((a, b) => b.createdAtMs - a.createdAtMs);
+  return matches[0] ?? null;
+}
+
+export async function listCheckpointsSorted(containerName: string): Promise<CheckpointEntry[]> {
+  const registry = await readRegistryFile();
+  const entries = registry.entries.filter((e) => e.containerName === containerName);
+  entries.sort((a, b) => b.createdAtMs - a.createdAtMs);
+  return entries;
+}
+
+export async function updateCheckpointEntry(
+  id: string,
+  updates: Partial<Pick<CheckpointEntry, "explorationLog" | "description">>,
+): Promise<boolean> {
+  let found = false;
+  await withRegistryLock(async () => {
+    const registry = await readRegistryFile();
+    const idx = registry.entries.findIndex((e) => e.id === id);
+    if (idx === -1) {
+      return;
+    }
+    found = true;
+    const existing = registry.entries[idx];
+    if (existing) {
+      registry.entries[idx] = { ...existing, ...updates };
+    }
+    await writeRegistryFile(registry);
+  });
+  return found;
+}
+
 export async function pruneOldCheckpoints(
   containerName: string,
   config: CheckpointConfig,
