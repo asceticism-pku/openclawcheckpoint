@@ -1,19 +1,15 @@
 import fs from "node:fs/promises";
 import { writeJsonAtomic } from "../../infra/json-files.js";
 import { acquireSessionWriteLock } from "../session-write-lock.js";
-import { SANDBOX_CHECKPOINT_REGISTRY_PATH } from "./constants.js";
 import type { CheckpointConfig, CheckpointEntry, CheckpointRegistry } from "./checkpoint-types.js";
+import { SANDBOX_CHECKPOINT_REGISTRY_PATH } from "./constants.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object";
 }
 
 function isCheckpointEntry(value: unknown): value is CheckpointEntry {
-  return (
-    isRecord(value) &&
-    typeof value.id === "string" &&
-    typeof value.containerName === "string"
-  );
+  return isRecord(value) && typeof value.id === "string" && typeof value.containerName === "string";
 }
 
 function isCheckpointRegistry(value: unknown): value is CheckpointRegistry {

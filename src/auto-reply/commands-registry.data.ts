@@ -624,6 +624,13 @@ function buildChatCommands(): ChatCommandDefinition[] {
       ],
     }),
     defineChatCommand({
+      key: "undo",
+      nativeName: "undo",
+      description: "Undo the last sandbox change by restoring the previous checkpoint.",
+      textAlias: "/undo",
+      category: "session",
+    }),
+    defineChatCommand({
       key: "think",
       nativeName: "think",
       description: "Set thinking level.",

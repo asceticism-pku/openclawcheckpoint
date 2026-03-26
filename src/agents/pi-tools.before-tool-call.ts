@@ -4,6 +4,7 @@ import { createSubsystemLogger } from "../logging/subsystem.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import { createLazyRuntimeSurface } from "../shared/lazy-runtime.js";
 import { isPlainObject } from "../utils.js";
+import type { CheckpointConfig } from "./sandbox/checkpoint-types.js";
 import { normalizeToolName } from "./tool-policy.js";
 import type { AnyAgentTool } from "./tools/common.js";
 
@@ -14,6 +15,12 @@ export type HookContext = {
   sessionId?: string;
   runId?: string;
   loopDetection?: ToolLoopDetectionConfig;
+  /** Container name for checkpoint restore on critical loop. */
+  containerName?: string;
+  /** Docker run args used to recreate the container after a restore. */
+  dockerRunArgs?: string[];
+  /** Partial checkpoint config for the session. */
+  checkpointConfig?: Partial<CheckpointConfig>;
 };
 
 type HookOutcome = { blocked: true; reason: string } | { blocked: false; params: unknown };
@@ -96,8 +103,13 @@ export async function runBeforeToolCallHook(args: {
   const params = args.params;
 
   if (args.ctx?.sessionKey) {
-    const { getDiagnosticSessionState, logToolLoopAction, detectToolCallLoop, recordToolCall } =
-      await loadBeforeToolCallRuntime();
+    const {
+      getDiagnosticSessionState,
+      logToolLoopAction,
+      detectToolCallLoop,
+      recordToolCall,
+      maybeRestoreCheckpointOnLoop,
+    } = await loadBeforeToolCallRuntime();
     const sessionState = getDiagnosticSessionState({
       sessionKey: args.ctx.sessionKey,
       sessionId: args.ctx?.agentId,
@@ -107,6 +119,15 @@ export async function runBeforeToolCallHook(args: {
 
     if (loopResult.stuck) {
       if (loopResult.level === "critical") {
+        // Attempt to restore the sandbox to the last checkpoint before blocking.
+        const restoreResult = await maybeRestoreCheckpointOnLoop({
+          loopResult,
+          sessionKey: args.ctx.sessionKey,
+          containerName: args.ctx.containerName,
+          dockerRunArgs: args.ctx.dockerRunArgs,
+          checkpointConfig: args.ctx.checkpointConfig,
+        });
+
         log.error(`Blocking ${toolName} due to critical loop: ${loopResult.message}`);
         logToolLoopAction({
           sessionKey: args.ctx.sessionKey,
@@ -121,7 +142,7 @@ export async function runBeforeToolCallHook(args: {
         });
         return {
           blocked: true,
-          reason: loopResult.message,
+          reason: restoreResult.restored ? restoreResult.message : loopResult.message,
         };
       } else {
         const warningKey = loopResult.warningKey ?? `${loopResult.detector}:${toolName}`;

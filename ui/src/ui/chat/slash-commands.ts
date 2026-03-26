@@ -40,6 +40,13 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     executeLocal: true,
   },
   {
+    name: "undo",
+    description: "Undo the last sandbox change by restoring the previous checkpoint",
+    icon: "refresh",
+    category: "session",
+    executeLocal: true,
+  },
+  {
     name: "stop",
     description: "Stop current run",
     icon: "stop",
