@@ -29,6 +29,8 @@ vi.mock("./docker.js", () => ({
   execDocker: (...args: unknown[]) => execDockerMock(...args),
 }));
 
+import { readCheckpointRegistry } from "./checkpoint-registry.js";
+import type { CheckpointConfig } from "./checkpoint-types.js";
 import {
   createCheckpoint,
   DEFAULT_CHECKPOINT_CONFIG,
@@ -38,8 +40,6 @@ import {
   resolveCheckpointConfig,
   restoreCheckpoint,
 } from "./checkpoint.js";
-import type { CheckpointConfig } from "./checkpoint-types.js";
-import { readCheckpointRegistry } from "./checkpoint-registry.js";
 
 function makeConfig(overrides?: Partial<CheckpointConfig>): CheckpointConfig {
   return {
@@ -177,9 +177,7 @@ describe("createCheckpoint", () => {
       config,
     });
     expect(result).not.toBeNull();
-    expect(execDockerMock).toHaveBeenCalledWith(
-      expect.arrayContaining(["commit", "my-container"]),
-    );
+    expect(execDockerMock).toHaveBeenCalledWith(expect.arrayContaining(["commit", "my-container"]));
     // The snapshot ref should match openclaw-ckpt:<uuid>
     const commitArgs = execDockerMock.mock.calls[0][0] as string[];
     expect(commitArgs[0]).toBe("commit");

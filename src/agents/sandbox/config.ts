@@ -2,6 +2,8 @@ import type { OpenClawConfig } from "../../config/config.js";
 import type { SandboxSshSettings } from "../../config/types.sandbox.js";
 import { normalizeSecretInputString } from "../../config/types.secrets.js";
 import { resolveAgentConfig } from "../agent-scope.js";
+import type { CheckpointConfig } from "./checkpoint-types.js";
+import { resolveCheckpointConfig as resolveCheckpointConfigBase } from "./checkpoint.js";
 import {
   DEFAULT_SANDBOX_BROWSER_AUTOSTART_TIMEOUT_MS,
   DEFAULT_SANDBOX_BROWSER_CDP_PORT,
@@ -17,7 +19,6 @@ import {
   DEFAULT_SANDBOX_WORKDIR,
   DEFAULT_SANDBOX_WORKSPACE_ROOT,
 } from "./constants.js";
-import { resolveCheckpointConfig as resolveCheckpointConfigBase } from "./checkpoint.js";
 import { resolveSandboxToolPolicyForAgent } from "./tool-policy.js";
 import type {
   SandboxBrowserConfig,

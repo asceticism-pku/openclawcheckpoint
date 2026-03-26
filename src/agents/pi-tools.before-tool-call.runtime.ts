@@ -1,5 +1,6 @@
 import { getDiagnosticSessionState } from "../logging/diagnostic-session-state.js";
 import { logToolLoopAction } from "../logging/diagnostic.js";
+import { maybeRestoreCheckpointOnLoop } from "./checkpoint-restore-on-loop.js";
 import {
   detectToolCallLoop,
   recordToolCall,
@@ -12,4 +13,5 @@ export const beforeToolCallRuntime = {
   detectToolCallLoop,
   recordToolCall,
   recordToolCallOutcome,
+  maybeRestoreCheckpointOnLoop,
 };

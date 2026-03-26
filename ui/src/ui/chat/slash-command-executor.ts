@@ -67,6 +67,8 @@ export async function executeSlashCommand(
       return { content: "Toggled focus mode.", action: "toggle-focus" };
     case "compact":
       return await executeCompact(client, sessionKey);
+    case "undo":
+      return await executeUndo(client, sessionKey);
     case "model":
       return await executeModel(client, sessionKey, args);
     case "think":
@@ -118,6 +120,19 @@ async function executeCompact(
     return { content: "Context compacted successfully.", action: "refresh" };
   } catch (err) {
     return { content: `Compaction failed: ${String(err)}` };
+  }
+}
+
+async function executeUndo(
+  client: GatewayBrowserClient,
+  sessionKey: string,
+): Promise<SlashCommandResult> {
+  try {
+    // Route /undo to the gateway for server-side handling.
+    await client.request("chat.message", { sessionKey, text: "/undo" });
+    return { content: "Undo request sent to gateway.", action: "refresh" };
+  } catch (err) {
+    return { content: `Undo failed: ${String(err)}` };
   }
 }
 

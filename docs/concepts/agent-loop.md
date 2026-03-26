@@ -146,3 +146,39 @@ See [Plugin hooks](/plugins/architecture#provider-runtime-hooks) for the hook AP
 - AbortSignal (cancel)
 - Gateway disconnect or RPC timeout
 - `agent.wait` timeout (wait-only, does not stop agent)
+
+## Checkpoint auto-restore on loop detection
+
+When the tool-loop detector identifies a **critical** stuck loop (for example, `global_circuit_breaker`
+triggers after 30 repeated identical tool calls with no progress), OpenClaw attempts to automatically
+restore the sandbox to its most recent checkpoint before blocking the session.
+
+### How it works
+
+1. `detectToolCallLoop()` returns `{ stuck: true, level: "critical", detector: "..." }`.
+2. `maybeRestoreCheckpointOnLoop()` is called with the loop result and the session's sandbox context.
+3. If a restorable checkpoint exists, `restoreCheckpoint()` recreates the container from the committed
+   Docker image and the stride counter is reset so the next run starts fresh.
+4. The tool call is blocked regardless of whether the restore succeeds, but the reason injected into
+   the model context differs:
+   - **Restore succeeded**: `"⚠️ Detected stuck loop (<detector>). Sandbox has been restored to the last checkpoint. Please try a different approach."`
+   - **No restore available**: the original loop message is used as the block reason.
+
+### Requirements
+
+- The sandbox backend must support checkpoints (`backend.capabilities.checkpoint = true`).
+- `checkpoint.enabled` must be `true` in the agent config.
+- At least one successful checkpoint must exist for the container.
+
+## `/undo` command
+
+Users can manually trigger a sandbox checkpoint restore at any time with the `/undo` command.
+
+### Behavior
+
+1. Resolves the sandbox context for the current session.
+2. If no sandbox or checkpoints are not enabled: replies with `"⚠️ Undo is not available — no sandbox checkpoint is configured for this session."`
+3. If no checkpoint exists: replies with `"⚠️ No checkpoint available to restore."`
+4. Calls `restoreCheckpoint()` to recreate the container from the last committed image.
+5. On success: replies with `"✅ Sandbox restored to checkpoint from <relative time> (tool: <toolName>). The last mutating change has been undone."` and resets the stride counter.
+6. On failure: replies with `"❌ Failed to restore checkpoint. Please check sandbox status."`
