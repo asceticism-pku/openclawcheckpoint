@@ -1,5 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  computeAdaptiveStride,
+  getAdaptiveStride,
   getStrideCount,
   resetStrideCounter,
   shouldCheckpointAtStride,
@@ -123,5 +125,113 @@ describe("independent session counters", () => {
     resetStrideCounter(keyA);
     expect(getStrideCount(keyA)).toBe(0);
     expect(getStrideCount(keyB)).toBe(1);
+  });
+});
+
+describe("computeAdaptiveStride", () => {
+  it("returns 1 on the first call for a new session", () => {
+    const key = nextSession();
+    const stride = computeAdaptiveStride(key);
+    expect(stride).toBe(1);
+  });
+
+  it("increases stride when calls are very fast (simulated via mocked Date.now)", () => {
+    const key = nextSession();
+    let fakeTime = 0;
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => fakeTime);
+
+    try {
+      // First call at t=0.
+      computeAdaptiveStride(key); // initializes, returns 1
+
+      // Subsequent calls 100ms apart (well below ADAPTIVE_FAST_THRESHOLD_MS=2000).
+      for (let i = 1; i <= 6; i++) {
+        fakeTime += 100;
+        computeAdaptiveStride(key);
+      }
+
+      // After several fast calls the stride should have increased above 1.
+      expect(getAdaptiveStride(key)).toBeGreaterThan(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("decreases stride when calls are slow (simulated via mocked Date.now)", () => {
+    const key = nextSession();
+    let fakeTime = 0;
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => fakeTime);
+
+    try {
+      computeAdaptiveStride(key); // init
+
+      // Ramp up with fast calls first.
+      for (let i = 0; i < 5; i++) {
+        fakeTime += 100;
+        computeAdaptiveStride(key);
+      }
+      const peakStride = getAdaptiveStride(key);
+
+      // Then slow down (calls 10s apart — well above threshold).
+      for (let i = 0; i < 10; i++) {
+        fakeTime += 10_000;
+        computeAdaptiveStride(key);
+      }
+
+      expect(getAdaptiveStride(key)).toBeLessThan(peakStride);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("never exceeds ADAPTIVE_MAX_STRIDE (8)", () => {
+    const key = nextSession();
+    let fakeTime = 0;
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => fakeTime);
+
+    try {
+      for (let i = 0; i <= 50; i++) {
+        fakeTime += 10; // very fast
+        computeAdaptiveStride(key);
+      }
+      expect(getAdaptiveStride(key)).toBeLessThanOrEqual(8);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("never goes below ADAPTIVE_MIN_STRIDE (1)", () => {
+    const key = nextSession();
+    let fakeTime = 0;
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => fakeTime);
+
+    try {
+      for (let i = 0; i <= 20; i++) {
+        fakeTime += 60_000; // very slow
+        computeAdaptiveStride(key);
+      }
+      expect(getAdaptiveStride(key)).toBeGreaterThanOrEqual(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("resets adaptive state when resetStrideCounter is called", () => {
+    const key = nextSession();
+    let fakeTime = 0;
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => fakeTime);
+
+    try {
+      for (let i = 0; i < 5; i++) {
+        fakeTime += 100;
+        computeAdaptiveStride(key);
+      }
+      expect(getAdaptiveStride(key)).toBeGreaterThan(1);
+      resetStrideCounter(key);
+      // After reset, adaptive state is cleared — getAdaptiveStride returns default.
+      expect(getAdaptiveStride(key)).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

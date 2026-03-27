@@ -60,7 +60,14 @@ export async function maybeCreateCheckpointAfterToolCall(
   }
 
   // Apply stride throttling — only checkpoint every Nth qualifying call.
-  if (!shouldCheckpointAtStride(sessionKey, config.checkpointStride ?? 1)) {
+  // When adaptiveStride is enabled, use the computed adaptive stride value
+  // in place of the configured static stride.
+  const effectiveStride =
+    config.adaptiveStride === true
+      ? undefined // computeAdaptiveStride is called inside createCheckpoint
+      : (config.checkpointStride ?? 1);
+
+  if (effectiveStride !== undefined && !shouldCheckpointAtStride(sessionKey, effectiveStride)) {
     return null;
   }
 

@@ -182,3 +182,76 @@ Users can manually trigger a sandbox checkpoint restore at any time with the `/u
 4. Calls `restoreCheckpoint()` to recreate the container from the last committed image.
 5. On success: replies with `"✅ Sandbox restored to checkpoint from <relative time> (tool: <toolName>). The last mutating change has been undone."` and resets the stride counter.
 6. On failure: replies with `"❌ Failed to restore checkpoint. Please check sandbox status."`
+
+## Checkpoint strategies
+
+OpenClaw supports multiple checkpoint strategies for sandbox containers. The strategy is configured
+via `checkpoint.strategy` in the agent config.
+
+### `docker-commit` (default)
+
+Creates a full snapshot of the container filesystem using `docker commit`. On restore, the container
+is stopped and recreated from the committed image. Simple and reliable but slow for large containers
+because the entire filesystem is snapshotted on every checkpoint.
+
+### `overlay` (incremental diff)
+
+Instead of a full filesystem snapshot, `overlay` captures only the files that changed since the
+container was last snapshotted — an incremental diff. This is dramatically faster for OSWorld
+benchmark tasks where the agent makes small, targeted changes to the container.
+
+**How it works:**
+
+1. `docker diff <container>` lists all files that were added (A), changed (C), or deleted (D).
+2. Changed/added files are extracted via streaming `docker cp` and stored as a gzipped tar archive
+   on the host at `~/.openclaw/sandbox/checkpoints/<container>/<id>.tar.gz`.
+3. Deleted paths are stored in a JSON sidecar (`<id>.meta.json`).
+4. Each overlay checkpoint records a `parentCheckpointId` to form an incremental chain.
+
+**Restore:** The chain is replayed from root to target — the container is recreated from the base
+image, then each overlay layer is applied in order (tar extracted, deleted paths removed).
+
+**Performance benefit:** For a container where a benchmark step modifies only a handful of files,
+the overlay tar is typically a few kilobytes vs. hundreds of megabytes for a full `docker commit`.
+
+### `auto`
+
+Probes the container runtime at checkpoint time. Uses `overlay` if `docker diff` is supported,
+otherwise falls back to `docker-commit`. Recommended for most use cases.
+
+### `criu`
+
+Not yet implemented. Selecting `criu` will cause checkpoints to be skipped with a warning.
+
+## In-memory session state checkpointing
+
+When `checkpoint.memoryCheckpoint` is `true` (the default), OpenClaw also snapshots the agent's
+in-memory session state alongside the container checkpoint:
+
+- **Tool call history** used by the loop detector to identify stuck patterns.
+- **Stride counter** for checkpoint throttling.
+
+The snapshot is stored as a JSON file next to the overlay tar (or alongside the docker-commit
+registry entry). On restore, the session state is reinstated so the loop detector starts from the
+correct baseline — preventing false-positive loop detections after a rollback.
+
+## Adaptive stride
+
+When `checkpoint.adaptiveStride` is `true`, the checkpoint stride interval adjusts automatically
+based on tool call frequency:
+
+- **Fast calls** (arriving faster than 2 seconds apart on average): stride increases (fewer
+  checkpoints, less overhead) up to a maximum of 8.
+- **Slow calls**: stride decreases back toward 1 (checkpoint every call).
+
+This is useful for OSWorld benchmark workloads where the agent alternates between rapid exploratory
+tool calls and longer-running setup steps.
+
+## Disk budget pruning
+
+When `checkpoint.maxTotalSizeBytes` is configured, checkpoints are pruned oldest-first whenever
+the cumulative size of all checkpoint artifacts exceeds the budget. This works in combination with
+`maxSnapshots` (count-based pruning) and `ttlMs` (age-based pruning).
+
+Each checkpoint entry tracks a `sizeBytes` field (populated for overlay checkpoints; not available
+for docker-commit entries since Docker image sizes are not easily queried at commit time).

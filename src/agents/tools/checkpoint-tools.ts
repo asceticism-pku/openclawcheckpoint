@@ -26,6 +26,8 @@ export type CheckpointToolContext = {
   containerName: string;
   dockerRunArgs?: string[];
   checkpointConfig?: Partial<CheckpointConfig>;
+  /** Base Docker image for the container. Required for overlay checkpoint restore. */
+  baseImageRef?: string;
 };
 
 /**
@@ -130,12 +132,15 @@ function createCheckpointListTool(ctx: CheckpointToolContext): AnyAgentTool {
         id: e.id,
         label: e.label ?? null,
         source: e.source ?? "auto",
+        strategy: e.strategy,
         created_at: new Date(e.createdAtMs).toISOString(),
         relative_time: formatRelativeTimestamp(e.createdAtMs),
         tool: e.toolName,
         restorable: e.restorable,
         description: e.description ?? null,
         exploration_attempts: e.explorationLog?.length ?? 0,
+        size_bytes: e.sizeBytes ?? null,
+        has_memory_snapshot: e.memorySnapshotPath != null,
       }));
 
       return jsonResult({
@@ -248,6 +253,7 @@ function createCheckpointRestoreTool(ctx: CheckpointToolContext): AnyAgentTool {
         id: resolvedId,
         containerName: ctx.containerName,
         dockerRunArgs: ctx.dockerRunArgs,
+        baseImageRef: ctx.baseImageRef,
       }).catch((err) => {
         log.warn(`checkpoint_restore failed: ${String(err)}`);
         return false;

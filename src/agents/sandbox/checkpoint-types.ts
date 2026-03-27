@@ -17,6 +17,21 @@ export type CheckpointConfig = {
    * only every 3rd mutating tool call.
    */
   checkpointStride?: number;
+  /**
+   * Enable adaptive stride — automatically increases the stride interval when tool calls
+   * are frequent (e.g. rapid benchmark execution) and decreases it when calls are infrequent.
+   */
+  adaptiveStride?: boolean;
+  /**
+   * Maximum total checkpoint storage in bytes across all checkpoints for a container.
+   * Oldest checkpoints are pruned first when this budget is exceeded.
+   */
+  maxTotalSizeBytes?: number;
+  /**
+   * Also snapshot the in-memory session state (tool call history, loop detection state)
+   * alongside the container checkpoint. Defaults to true when checkpoints are enabled.
+   */
+  memoryCheckpoint?: boolean;
 };
 
 export type CheckpointEntry = {
@@ -38,6 +53,21 @@ export type CheckpointEntry = {
   description?: string;
   /** What was tried after this checkpoint (populated on restore). */
   explorationLog?: string[];
+  /**
+   * For overlay strategy: the ID of the checkpoint this one is based on (incremental chain).
+   * When restoring, checkpoints are applied in order from root to target.
+   */
+  parentCheckpointId?: string;
+  /**
+   * Path to the serialized in-memory session state snapshot (.json file on the host).
+   * Present when `memoryCheckpoint` was enabled during creation.
+   */
+  memorySnapshotPath?: string;
+  /**
+   * Size of the checkpoint snapshot artifact in bytes (overlay tar or docker image layer).
+   * Used for disk-budget-aware pruning when `maxTotalSizeBytes` is configured.
+   */
+  sizeBytes?: number;
 };
 
 export type CheckpointRegistry = {

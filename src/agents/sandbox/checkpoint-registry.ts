@@ -147,6 +147,49 @@ export async function updateCheckpointEntry(
   return found;
 }
 
+/**
+ * Prunes checkpoints for a container when their cumulative `sizeBytes` exceeds
+ * `maxTotalSizeBytes`. Removes oldest entries first until within budget.
+ *
+ * Returns the list of pruned entries (callers are responsible for removing
+ * the corresponding snapshot artifacts).
+ */
+export async function pruneByTotalSize(
+  containerName: string,
+  maxTotalSizeBytes: number,
+): Promise<CheckpointEntry[]> {
+  let pruned: CheckpointEntry[] = [];
+  await withRegistryLock(async () => {
+    const registry = await readRegistryFile();
+    const forContainer = registry.entries.filter((e) => e.containerName === containerName);
+    const others = registry.entries.filter((e) => e.containerName !== containerName);
+
+    // Sort ascending by creation time so we prune oldest first.
+    forContainer.sort((a, b) => a.createdAtMs - b.createdAtMs);
+
+    let totalBytes = forContainer.reduce((sum, e) => sum + (e.sizeBytes ?? 0), 0);
+
+    if (totalBytes <= maxTotalSizeBytes) {
+      return;
+    }
+
+    const kept: CheckpointEntry[] = [];
+    for (const entry of forContainer) {
+      if (totalBytes > maxTotalSizeBytes) {
+        pruned.push(entry);
+        totalBytes -= entry.sizeBytes ?? 0;
+      } else {
+        kept.push(entry);
+      }
+    }
+
+    if (pruned.length > 0) {
+      await writeRegistryFile({ entries: [...others, ...kept] });
+    }
+  });
+  return pruned;
+}
+
 export async function pruneOldCheckpoints(
   containerName: string,
   config: CheckpointConfig,
