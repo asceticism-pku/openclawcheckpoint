@@ -7,10 +7,11 @@
  *
  * ## Checkpoint creation
  * 1. Run `docker diff <container>` to obtain the list of changed paths (Added / Changed / Deleted).
- * 2. For added/changed paths, extract them from the container via `docker cp` into a tar archive
- *    stored at `~/.openclaw/sandbox/checkpoints/<container>/<id>.tar.gz` on the host.
+ * 2. For added/changed paths, create a tar.gz archive **inside** the container via
+ *    `docker exec <container> tar -czf /tmp/_openclaw_ckpt.tar.gz -C / <paths>` and then copy
+ *    the archive to the host via `docker cp`.
  * 3. Store a JSON sidecar `<id>.meta.json` alongside the tar with the list of deleted paths so
- *    they can be recreated (as empty markers or removed) on restore.
+ *    they can be removed on restore.
  *
  * ## Checkpoint restore
  * Restores the container to the state captured by a specific checkpoint.  Because each overlay
@@ -18,35 +19,32 @@
  * the full chain from root to target:
  *
  * 1. Stop and remove the current container.
- * 2. Recreate from the base image (the `snapshotRef` stored in the root entry, which for overlay
- *    checkpoints is the original image name, not a committed snapshot).
+ * 2. Recreate from the base image (the original image used when the container was created).
  * 3. Start the container.
- * 4. Walk the ancestry chain (root → … → target) and for each step:
- *    a. Copy the tar back into the container via `docker cp`.
- *    b. Remove any paths listed in the deleted-paths sidecar.
+ * 4. Walk the ancestry chain (root — target) and for each step:
+ *    a. Copy the tar.gz into the container via `docker cp`.
+ *    b. Extract it via `docker exec tar -xzf`.
+ *    c. Remove any paths listed in the deleted-paths sidecar.
  *
  * ## Incremental chain
  * Each overlay entry stores a `parentCheckpointId` pointing to its parent in the chain.  The
  * chain is resolved at restore time from the registry.
  *
  * ## Performance
- * The tar is produced by streaming `docker cp <container>:<path> -` output for each changed
- * path directly through Node.js `zlib.createGzip()` without buffering the entire archive in
- * memory, keeping peak memory usage proportional to the changed-file set rather than the total
- * container filesystem size.
+ * Only changed files are archived — for typical benchmark tasks this is orders of magnitude
+ * smaller than a full docker commit snapshot.
  */
 
-import { createReadStream, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { pipeline } from "node:stream/promises";
-import { createGzip, createGunzip } from "node:zlib";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { SANDBOX_CHECKPOINT_OVERLAY_DIR } from "./constants.js";
-import { execDockerRaw } from "./docker.js";
 import { execDocker } from "./docker.js";
 
 const log = createSubsystemLogger("sandbox/checkpoint-overlay");
+
+/** Temp file path used inside the container during checkpoint creation/restore. */
+const CONTAINER_TEMP_TAR = "/tmp/_openclaw_ckpt_overlay.tar.gz";
 
 /** JSON sidecar stored alongside each overlay tar. */
 export type OverlayMeta = {
@@ -117,8 +115,10 @@ function parseDiffOutput(stdout: string): { changed: string[]; deleted: string[]
 /**
  * Creates an overlay checkpoint for the given container.
  *
- * Runs `docker diff` to get the list of changed files, then extracts them
- * via streaming `docker cp` piped through gzip into a tar on the host.
+ * Runs `docker diff` to get the list of changed files, then creates a tar archive
+ * inside the container using `docker exec tar` and copies it to the host with
+ * `docker cp`. This produces a valid POSIX tar in a single pass — no stream
+ * concatenation issues.
  *
  * @param containerName - Running container to checkpoint.
  * @param checkpointId  - UUID for this checkpoint (caller supplies for registry consistency).
@@ -151,38 +151,34 @@ export async function createOverlayCheckpoint(
   const tarPath = path.join(overlayDir, `${checkpointId}.tar.gz`);
   const metaPath = path.join(overlayDir, `${checkpointId}.meta.json`);
 
-  // 2. Extract changed files via `docker cp <container>:<path> -` piped through gzip.
-  //    We build a combined archive by concatenating individual `docker cp` tar streams.
-  //    Since docker cp outputs a POSIX tar stream and gzip wraps the raw bytes, we stream
-  //    directly to disk.
+  // 2. Create the tar archive inside the container using `docker exec tar` and copy it out.
+  //    Strip leading slashes so paths are relative to the `-C /` root.
   if (changed.length > 0) {
     try {
-      const writeStream = createWriteStream(tarPath);
-      const gzip = createGzip();
-      gzip.pipe(writeStream);
+      const relPaths = changed.map((p) => (p.startsWith("/") ? p.slice(1) : p));
 
-      for (const filePath of changed) {
-        try {
-          // `docker cp <container>:<path> -` writes a tar stream to stdout for a single path.
-          const result = await execDockerRaw(["cp", `${containerName}:${filePath}`, "-"]);
-          gzip.write(result.stdout);
-        } catch (copyErr) {
-          // A file may have been deleted between diff and cp (race); log and skip.
-          log.debug(
-            `docker cp skipped for path=${filePath} container=${containerName}: ${String(copyErr)}`,
-          );
-        }
-      }
+      // Build the archive inside the container.
+      await execDocker([
+        "exec",
+        containerName,
+        "tar",
+        "-czf",
+        CONTAINER_TEMP_TAR,
+        "--ignore-failed-read",
+        "-C",
+        "/",
+        ...relPaths,
+      ]);
 
-      gzip.end();
-      // Wait for the write stream to finish flushing.
-      await new Promise<void>((resolve, reject) => {
-        writeStream.on("finish", resolve);
-        writeStream.on("error", reject);
+      // Copy the archive from the container to the host filesystem.
+      await execDocker(["cp", `${containerName}:${CONTAINER_TEMP_TAR}`, tarPath]);
+
+      // Remove the temp file inside the container.
+      await execDocker(["exec", containerName, "rm", "-f", CONTAINER_TEMP_TAR], {
+        allowFailure: true,
       });
     } catch (err) {
       log.warn(`Overlay tar creation failed for container=${containerName}: ${String(err)}`);
-      // Clean up partial file.
       await fs.unlink(tarPath).catch(() => undefined);
       return null;
     }
@@ -243,7 +239,7 @@ export async function readOverlayMeta(
 /**
  * Applies a single overlay checkpoint layer to a running container.
  *
- * 1. Copies the tar archive back into the container root via `docker cp`.
+ * 1. Copies the tar archive from the host into the container and extracts it via `docker exec tar`.
  * 2. Removes any deleted paths listed in the sidecar metadata.
  */
 async function applyOverlayLayer(
@@ -274,13 +270,16 @@ async function applyOverlayLayer(
 
   if (tarExists) {
     try {
-      // Decompress to a tmp path, then copy into the container.
-      const tmpPath = `${tarPath}.tmp.tar`;
-      const gunzip = createGunzip();
-      await pipeline(createReadStream(tarPath), gunzip, createWriteStream(tmpPath));
+      // Copy the archive from the host into the container.
+      await execDocker(["cp", tarPath, `${containerName}:${CONTAINER_TEMP_TAR}`]);
 
-      await execDocker(["cp", tmpPath, `${containerName}:/`]);
-      await fs.unlink(tmpPath).catch(() => undefined);
+      // Extract the archive relative to the container root.
+      await execDocker(["exec", containerName, "tar", "-xzf", CONTAINER_TEMP_TAR, "-C", "/"]);
+
+      // Remove the temp file inside the container.
+      await execDocker(["exec", containerName, "rm", "-f", CONTAINER_TEMP_TAR], {
+        allowFailure: true,
+      });
     } catch (err) {
       log.warn(
         `Failed to apply overlay tar for checkpoint=${checkpointId} container=${containerName}: ${String(err)}`,
@@ -311,8 +310,7 @@ async function applyOverlayLayer(
  * The restore algorithm:
  * 1. Stop and remove the running container.
  * 2. Recreate it from the base image and start it.
- * 3. Apply each overlay layer in order from root to target by walking the
- *    `parentCheckpointId` chain from the registry.
+ * 3. Apply each overlay layer in the chain in order (root to target).
  *
  * @param containerName     - Name of the container to restore.
  * @param targetCheckpointId - ID of the checkpoint to restore to.
@@ -358,7 +356,7 @@ export async function restoreOverlayCheckpoint(params: {
     return false;
   }
 
-  // 4. Apply each overlay layer in the chain.
+  // 4. Apply each overlay layer in order from root to target.
   const overlayDir = await ensureOverlayDir(containerName);
   for (const layerId of chain) {
     const ok = await applyOverlayLayer(containerName, layerId, overlayDir);

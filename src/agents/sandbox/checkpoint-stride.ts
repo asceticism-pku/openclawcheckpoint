@@ -22,6 +22,12 @@ const adaptiveState = new Map<
 >();
 
 /**
+ * Smoothing factor for the exponential moving average of inter-call intervals.
+ * Higher values make the average more responsive to recent changes.
+ */
+const ADAPTIVE_EMA_ALPHA = 0.3;
+
+/**
  * Minimum interval (ms) between tool calls considered "fast" for adaptive stride.
  * Calls arriving faster than this will increase the stride.
  */
@@ -60,9 +66,9 @@ export function computeAdaptiveStride(sessionKey: string): number {
   }
 
   const intervalMs = nowMs - state.lastCallMs;
-  // Exponential moving average with alpha=0.3 for smoothing.
-  const alpha = 0.3;
-  const newAvg = alpha * intervalMs + (1 - alpha) * state.rollingAvgIntervalMs;
+  // Exponential moving average for smoothing inter-call interval estimates.
+  const newAvg =
+    ADAPTIVE_EMA_ALPHA * intervalMs + (1 - ADAPTIVE_EMA_ALPHA) * state.rollingAvgIntervalMs;
 
   let newStride = state.currentStride;
   if (newAvg < ADAPTIVE_FAST_THRESHOLD_MS) {

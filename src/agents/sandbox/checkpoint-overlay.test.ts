@@ -20,10 +20,8 @@ vi.mock("./constants.js", () => ({
 }));
 
 const execDockerMock = vi.fn();
-const execDockerRawMock = vi.fn();
 vi.mock("./docker.js", () => ({
   execDocker: (...args: unknown[]) => execDockerMock(...args),
-  execDockerRaw: (...args: unknown[]) => execDockerRawMock(...args),
 }));
 
 import {
@@ -35,13 +33,7 @@ import {
 
 beforeEach(() => {
   execDockerMock.mockReset();
-  execDockerRawMock.mockReset();
   execDockerMock.mockResolvedValue({ stdout: "", stderr: "", code: 0 });
-  execDockerRawMock.mockResolvedValue({
-    stdout: Buffer.from(""),
-    stderr: Buffer.from(""),
-    code: 0,
-  });
 });
 
 describe("createOverlayCheckpoint", () => {
@@ -64,12 +56,8 @@ describe("createOverlayCheckpoint", () => {
       stderr: "",
       code: 0,
     });
-    // docker cp raw calls (one per changed file)
-    execDockerRawMock.mockResolvedValue({
-      stdout: Buffer.from("fake-tar-content"),
-      stderr: Buffer.from(""),
-      code: 0,
-    });
+    // docker exec tar + docker cp calls (2 calls for changed files, 1 for cp)
+    execDockerMock.mockResolvedValue({ stdout: "", stderr: "", code: 0 });
 
     const result = await createOverlayCheckpoint("test-container", "overlay-id-3", null);
     expect(result).not.toBeNull();
@@ -78,6 +66,14 @@ describe("createOverlayCheckpoint", () => {
     expect(result!.deletedPaths).toContain("/tmp/deleted.txt");
     expect(result!.tarPath).toContain("overlay-id-3.tar.gz");
     expect(result!.metaPath).toContain("overlay-id-3.meta.json");
+    // Verify docker exec tar was called inside the container
+    const execTarCall = execDockerMock.mock.calls.find(
+      (c: unknown[]) =>
+        Array.isArray(c[0]) &&
+        (c[0] as string[]).includes("exec") &&
+        (c[0] as string[]).includes("tar"),
+    );
+    expect(execTarCall).toBeDefined();
   });
 
   it("writes correct sidecar metadata", async () => {
@@ -86,11 +82,7 @@ describe("createOverlayCheckpoint", () => {
       stderr: "",
       code: 0,
     });
-    execDockerRawMock.mockResolvedValue({
-      stdout: Buffer.from("data"),
-      stderr: Buffer.from(""),
-      code: 0,
-    });
+    execDockerMock.mockResolvedValue({ stdout: "", stderr: "", code: 0 });
 
     const id = "meta-test-id";
     const parentId = "parent-id-123";
@@ -118,8 +110,14 @@ describe("createOverlayCheckpoint", () => {
     expect(result!.changedPaths).toHaveLength(0);
     expect(result!.deletedPaths).toContain("/tmp/deleted.txt");
     expect(result!.sizeBytes).toBe(0);
-    // execDockerRaw should NOT have been called (no files to cp)
-    expect(execDockerRawMock).not.toHaveBeenCalled();
+    // docker exec tar should NOT have been called (no files to archive)
+    const execTarCall = execDockerMock.mock.calls.find(
+      (c: unknown[]) =>
+        Array.isArray(c[0]) &&
+        (c[0] as string[]).includes("exec") &&
+        (c[0] as string[]).includes("tar"),
+    );
+    expect(execTarCall).toBeUndefined();
   });
 });
 

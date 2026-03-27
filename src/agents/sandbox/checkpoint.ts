@@ -19,7 +19,6 @@ import {
   pruneOldCheckpoints,
   removeCheckpointEntry,
 } from "./checkpoint-registry.js";
-import { computeAdaptiveStride } from "./checkpoint-stride.js";
 import type { CheckpointConfig, CheckpointEntry, CheckpointStrategy } from "./checkpoint-types.js";
 import { execDocker } from "./docker.js";
 
@@ -145,12 +144,6 @@ export async function createCheckpoint(
   }
 
   const id = randomUUID();
-
-  // Determine adaptive stride value if enabled (purely informational for callers here;
-  // stride gating happens in the after-tool-call hook).
-  const _adaptiveStrideValue = config.adaptiveStride
-    ? computeAdaptiveStride(sessionKey)
-    : undefined;
 
   let entry: CheckpointEntry;
 
@@ -416,7 +409,8 @@ async function resolveContainerImage(containerName: string): Promise<string | nu
     const result = await execDocker(["inspect", "--format", "{{.Config.Image}}", containerName]);
     const image = result.stdout.trim();
     return image || null;
-  } catch {
+  } catch (err) {
+    log.debug(`docker inspect failed for container=${containerName}: ${String(err)}`);
     return null;
   }
 }
