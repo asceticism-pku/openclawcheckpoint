@@ -54,3 +54,4 @@ export const SANDBOX_STATE_DIR = path.join(STATE_DIR, "sandbox");
 export const SANDBOX_REGISTRY_PATH = path.join(SANDBOX_STATE_DIR, "containers.json");
 export const SANDBOX_BROWSER_REGISTRY_PATH = path.join(SANDBOX_STATE_DIR, "browsers.json");
 export const SANDBOX_CHECKPOINT_REGISTRY_PATH = path.join(SANDBOX_STATE_DIR, "checkpoints.json");
+export const SANDBOX_CHECKPOINT_OVERLAY_DIR = path.join(SANDBOX_STATE_DIR, "checkpoints");

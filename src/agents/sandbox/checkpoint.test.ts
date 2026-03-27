@@ -22,11 +22,31 @@ vi.mock("./constants.js", () => ({
     "browsers.json",
   ),
   SANDBOX_CHECKPOINT_REGISTRY_PATH: TEST_REGISTRY_PATH,
+  SANDBOX_CHECKPOINT_OVERLAY_DIR: require("node:path").join(
+    require("node:path").dirname(TEST_REGISTRY_PATH),
+    "checkpoints",
+  ),
 }));
 
 const execDockerMock = vi.fn();
+const execDockerRawMock = vi.fn();
 vi.mock("./docker.js", () => ({
   execDocker: (...args: unknown[]) => execDockerMock(...args),
+  execDockerRaw: (...args: unknown[]) => execDockerRawMock(...args),
+}));
+
+// Mock overlay and memory modules so we don't need real filesystem/docker for these tests.
+vi.mock("./checkpoint-overlay.js", () => ({
+  createOverlayCheckpoint: vi.fn().mockResolvedValue(null),
+  isOverlaySupported: vi.fn().mockResolvedValue(false),
+  removeOverlayArtifacts: vi.fn().mockResolvedValue(undefined),
+  restoreOverlayCheckpoint: vi.fn().mockResolvedValue(false),
+}));
+
+vi.mock("./checkpoint-memory.js", () => ({
+  saveMemorySnapshot: vi.fn().mockResolvedValue(null),
+  restoreMemorySnapshot: vi.fn().mockResolvedValue(true),
+  removeMemorySnapshot: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { readCheckpointRegistry } from "./checkpoint-registry.js";
@@ -38,6 +58,7 @@ import {
   isMutatingTool,
   removeCheckpointImage,
   resolveCheckpointConfig,
+  resolveEffectiveStrategy,
   restoreCheckpoint,
 } from "./checkpoint.js";
 
@@ -51,7 +72,13 @@ function makeConfig(overrides?: Partial<CheckpointConfig>): CheckpointConfig {
 
 beforeEach(() => {
   execDockerMock.mockReset();
+  execDockerRawMock.mockReset();
   execDockerMock.mockResolvedValue({ stdout: "", stderr: "", code: 0 });
+  execDockerRawMock.mockResolvedValue({
+    stdout: Buffer.from(""),
+    stderr: Buffer.from(""),
+    code: 0,
+  });
 });
 
 describe("isMutatingTool", () => {
@@ -360,5 +387,58 @@ describe("removeCheckpointImage", () => {
   it("does not throw when docker rmi fails", async () => {
     execDockerMock.mockRejectedValueOnce(new Error("No such image"));
     await expect(removeCheckpointImage("openclaw-ckpt:missing")).resolves.toBeUndefined();
+  });
+});
+
+describe("resolveEffectiveStrategy", () => {
+  it("returns 'docker-commit' for docker-commit strategy", async () => {
+    const result = await resolveEffectiveStrategy("docker-commit", "any-container");
+    expect(result).toBe("docker-commit");
+  });
+
+  it("returns 'overlay' for overlay strategy", async () => {
+    const result = await resolveEffectiveStrategy("overlay", "any-container");
+    expect(result).toBe("overlay");
+  });
+
+  it("returns 'criu' for criu strategy", async () => {
+    const result = await resolveEffectiveStrategy("criu", "any-container");
+    expect(result).toBe("criu");
+  });
+
+  it("resolves 'auto' to 'docker-commit' when overlay is not supported", async () => {
+    const { isOverlaySupported } = await import("./checkpoint-overlay.js");
+    vi.mocked(isOverlaySupported).mockResolvedValueOnce(false);
+    const result = await resolveEffectiveStrategy("auto", "my-container");
+    expect(result).toBe("docker-commit");
+  });
+
+  it("resolves 'auto' to 'overlay' when overlay is supported", async () => {
+    const { isOverlaySupported } = await import("./checkpoint-overlay.js");
+    vi.mocked(isOverlaySupported).mockResolvedValueOnce(true);
+    const result = await resolveEffectiveStrategy("auto", "my-container");
+    expect(result).toBe("overlay");
+  });
+});
+
+describe("resolveCheckpointConfig new fields", () => {
+  it("sets adaptiveStride false by default", () => {
+    const cfg = resolveCheckpointConfig();
+    expect(cfg.adaptiveStride).toBe(false);
+  });
+
+  it("sets memoryCheckpoint true by default", () => {
+    const cfg = resolveCheckpointConfig();
+    expect(cfg.memoryCheckpoint).toBe(true);
+  });
+
+  it("propagates maxTotalSizeBytes when provided", () => {
+    const cfg = resolveCheckpointConfig({ maxTotalSizeBytes: 100_000 });
+    expect(cfg.maxTotalSizeBytes).toBe(100_000);
+  });
+
+  it("leaves maxTotalSizeBytes undefined when not provided", () => {
+    const cfg = resolveCheckpointConfig();
+    expect(cfg.maxTotalSizeBytes).toBeUndefined();
   });
 });

@@ -19,6 +19,8 @@ export type MaybeRestoreCheckpointOnLoopParams = {
   /** Docker create args (excluding image) used to recreate the container. */
   dockerRunArgs?: string[];
   checkpointConfig?: Partial<CheckpointConfig>;
+  /** Base Docker image for the container. Required for overlay checkpoint restore. */
+  baseImageRef?: string;
 };
 
 export type RestoreOnLoopResult =
@@ -39,7 +41,8 @@ export type RestoreOnLoopResult =
 export async function maybeRestoreCheckpointOnLoop(
   params: MaybeRestoreCheckpointOnLoopParams,
 ): Promise<RestoreOnLoopResult> {
-  const { loopResult, sessionKey, containerName, dockerRunArgs, checkpointConfig } = params;
+  const { loopResult, sessionKey, containerName, dockerRunArgs, checkpointConfig, baseImageRef } =
+    params;
 
   // Only act on critical stuck loops.
   if (!loopResult.stuck || loopResult.level !== "critical") {
@@ -76,7 +79,7 @@ export async function maybeRestoreCheckpointOnLoop(
     log.warn(`Failed to update exploration log for checkpoint ${entry.id}: ${String(err)}`);
   });
 
-  const ok = await restoreCheckpoint({ id: entry.id, containerName, dockerRunArgs });
+  const ok = await restoreCheckpoint({ id: entry.id, containerName, dockerRunArgs, baseImageRef });
   if (!ok) {
     log.warn(
       `Checkpoint restore failed: id=${entry.id} container=${containerName} session=${sessionKey}`,

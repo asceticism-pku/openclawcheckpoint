@@ -1,5 +1,6 @@
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import {
+  computeAdaptiveStride,
   getStrideCount,
   resetStrideCounter,
   shouldCheckpointAtStride,
@@ -60,7 +61,14 @@ export async function maybeCreateCheckpointAfterToolCall(
   }
 
   // Apply stride throttling — only checkpoint every Nth qualifying call.
-  if (!shouldCheckpointAtStride(sessionKey, config.checkpointStride ?? 1)) {
+  // When adaptiveStride is enabled, compute the current adaptive stride value
+  // based on recent call frequency, then use it for the gating decision.
+  const effectiveStride =
+    config.adaptiveStride === true
+      ? computeAdaptiveStride(sessionKey)
+      : (config.checkpointStride ?? 1);
+
+  if (!shouldCheckpointAtStride(sessionKey, effectiveStride)) {
     return null;
   }
 

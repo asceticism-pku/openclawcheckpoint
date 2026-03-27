@@ -135,4 +135,12 @@ export type SandboxCheckpointSettings = {
   ttlMs?: number;
   /** Tool names to skip checkpointing for. */
   skipTools?: string[];
+  /** Checkpoint stride. Default: 1. */
+  checkpointStride?: number;
+  /** Enable adaptive stride (auto-adjusts based on tool call frequency). */
+  adaptiveStride?: boolean;
+  /** Maximum total checkpoint storage in bytes. Oldest checkpoints pruned when exceeded. */
+  maxTotalSizeBytes?: number;
+  /** Also snapshot in-memory session state (tool history, loop detection). Default: true when enabled. */
+  memoryCheckpoint?: boolean;
 };
