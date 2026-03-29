@@ -257,6 +257,10 @@ export const SandboxCheckpointSchema = z
     maxSnapshots: z.number().int().positive().optional(),
     ttlMs: z.number().int().positive().optional(),
     skipTools: z.array(z.string()).optional(),
+    checkpointStride: z.number().int().positive().optional(),
+    adaptiveStride: z.boolean().optional(),
+    maxTotalSizeBytes: z.number().int().positive().optional(),
+    memoryCheckpoint: z.boolean().optional(),
   })
   .strict()
   .optional();

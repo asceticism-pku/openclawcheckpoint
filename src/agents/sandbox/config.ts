@@ -47,6 +47,10 @@ export function resolveCheckpointConfig(cfg?: OpenClawConfig, agentId?: string):
           maxSnapshots: merged.maxSnapshots,
           ttlMs: merged.ttlMs,
           skipTools: merged.skipTools,
+          checkpointStride: merged.checkpointStride,
+          adaptiveStride: merged.adaptiveStride,
+          maxTotalSizeBytes: merged.maxTotalSizeBytes,
+          memoryCheckpoint: merged.memoryCheckpoint,
         }
       : undefined,
   );
